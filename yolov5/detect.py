@@ -7,6 +7,7 @@ Usage:
 """
 
 import argparse
+from enum import EnumMeta
 import os
 from re import X
 import sys
@@ -14,6 +15,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pandas as pd
 import torch
 from torch._C import wait
 import torch.backends.cudnn as cudnn
@@ -22,6 +24,8 @@ import time
 import matplotlib.pyplot as plt
 from glob import glob
 import subbg
+import scipy.signal as signals
+from scipy.optimize import curve_fit
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
@@ -38,56 +42,126 @@ from utils.plots import Annotator, colors
 from utils.torch_utils import load_classifier, select_device, time_sync
 
 
+
+def cov1d(data,kernel = [0,0,0,1,1,1,1],thr = 0.90,offside=2):
+    size = len(kernel)
+    padding = data.shape[0]%size
+    res = []
+    for i in range(size - padding):
+        data = np.append(data,0)
+    check = []
+    for index,v in enumerate(data):
+        if index+size > data.shape[0]:
+            for i in range(size - 1):
+                res.append(0)
+            break
+        temp = data[index:index+size]
+        
+        if np.corrcoef(kernel,temp)[0][1] > thr:
+            check.append(index+offside)
+            res.append(data[index+offside])
+    return check,np.array(res)
+        
+
 def deployment(data,path,deltaT=0.25,deployment_time=0):
     dis = []
     area = []
     w = []
     h = []
+    far = []
     seam_dis =[]
-    seamflag_time =[]
-    seamflag_dis = []
+    seam_vis_index = 0
     datalen = len(data['cushion'])
     time = [ i*deltaT for i in range(datalen)]
-    for i in range(datalen):
-        if data['cushion'][i] !=[] :
-            dis.append(calcDis(data['cushion'][i][0:2],data['hub'][1][0:2]))
-            
+    cushion_start = 0
+    for i in range(datalen): #Find hub 
+        if data['hub'][i] !=[]:
+            hub = data['hub'][i][0:2]
+    
+    for i in range(datalen): # Extract data from AI
+        if data['cushion'][i] !=[]  and i > deployment_time/deltaT:
+            dis.append(calcDis(data['cushion'][i][0:2],hub))
             area.append(data['cushion'][i][2]*data['cushion'][i][3] )
             w.append(data['cushion'][i][2])
             h.append(data['cushion'][i][3])
+            far.append(data['cushion'][i][0]+data['cushion'][i][2]/2.) 
         else:
+            cushion_start += 1
             dis.append(0)  
-             
             area.append(0)
             w.append(0)
             h.append(0)
+            far.append(0)
         if data['seam'][i] !=[] :
-            seam_dis.append(calcDis(data['seam'][i][0:2],data['hub'][1][0:2]))
+            seam_dis.append(calcDis(data['seam'][i][0:2],hub))
         else:
             seam_dis.append(0) 
-        if  data['seam'][i] !=[]:       
-            seamflag_time.append(time[i])
-            seamflag_dis.append(dis[-1])
-    # plt.figure(figsize=(600,300))
+    # Check time
+    title = ''
+    fig = plt.figure(figsize=(8,6)) #新建画布
+    ax = plt.subplot(1,1,1) #子图初始化
+    # plt.scatter(seamflag_time,np.array(seamflag_dis)/max(dis),marker="o",c='red')
+
+    ax.scatter(deployment_time,0,marker="o",c='blue')
+    title += "T_s:"+str(deployment_time) +"ms  "
+    
+    cover_open_time = time[cushion_start-int(0.75/deltaT)] 
+    if cover_open_time < deployment_time :
+        cover_open_time = time[int((deployment_time/deltaT + cushion_start)/2)]
+
+    
+    seam_dis = signals.medfilt(np.array(seam_dis)/max(seam_dis),3)
+    plotCurve(ax,time,seam_dis,legend="Seam_dis",showflag = False)
+    dis_filter = signals.medfilt(np.array(dis)/max(dis))
+
+    plotCurve(ax,time,dis_filter,legend="Distance",showflag = False)
+
+    # Check seam vsiable
+    for i,v in enumerate(seam_dis):
+        if v != 0 :
+            seam_vis_index = i
+            break
+    if seam_vis_index == 0:
+        full_checkflag = dis.index(max(dis))
+        title += "No seam found!"
+        full_time = 999
+    else:
+        full_checkflag = max(dis.index(max(dis)),seam_vis_index)
+        title += "T_d:"+str(cover_open_time)+"ms  "
+        ax.scatter(cover_open_time,0,marker="o",c='pink')
+        # Check cushiong Min. displacement
+        if seam_dis[full_checkflag] ==0:
+            seam_dis[seam_dis==0]=2
+            min_dis = dis_filter[seam_dis.argmin()]
+        else:    
+            min_dis = min(dis_filter[full_checkflag:])
+  
+        # Get min. value of dis
+        for i,v in enumerate(dis_filter):
+            if min_dis == v:
+                full_time = time[i]
+                break
+
+       # check valley
+        check,res  = cov1d(dis_filter,kernel = [0,0,1,1,1],thr = 0.90,offside=2)
+        check1,_ = cov1d(res,kernel = [1,0,1],thr = 0.5,offside=1)
 
 
-    plt.scatter(seamflag_time,np.array(seamflag_dis)/max(dis),marker="o",c='red')
-    plt.scatter(deployment_time,dis[int(deployment_time/deltaT)],marker="o",c='blue')
-    plotCurve(time,np.array(area)/max(area),legend="Area",title="Observe",showflag = False)
-    plotCurve(time,np.array(dis)/max(dis),legend="Distance",showflag = False)
-    plotCurve(time,np.array(seam_dis)/max(seam_dis),legend="Seam_dis",showflag = False)
-    plotCurve(time,np.array(w)/max(w),legend="w",showflag = False)
-    plotCurve(time,np.array(h)/max(h),legend="h",showflag = False)
-    w_h = []
-    for i in range(datalen):
-        if h[i]!=0:
-            w_h.append(w[i]/h[i] ) 
-        else:
-            w_h.append(0)
-    plotCurve(time,np.array(w_h)/max(w_h),legend="w_h",showflag = False)
+        # check_time = [time[i] for i in check];check_dis = [dis_filter[i] for i in check]
+        # ax.scatter(check_time,check_dis,marker="o",c='black')
+        check_time = [time[check[i]] for i in check1];check_dis = [dis_filter[check[i]] for i in check1]
+        ax.scatter(check_time,check_dis,marker="s",c='black')
+        
+        
+        title += "T_f:"+str(full_time)+"ms"
+        ax.scatter(full_time,min_dis,marker="o",c='red')
+    
+    ax.set_title(title)
 
     print ("Curveplot fig is saved!",path.replace("avi","jpg"))
     plt.savefig(path.replace("avi","jpg"))
+    plt.close()
+    return cover_open_time,full_time
     # plt.show()
 
 
@@ -96,13 +170,13 @@ def calcDis(p1,p2):
 
 
 
-def plotCurve(x,y,title="Value",legend="Curve",xlabel="Time(ms)",ylabel="Value",showflag = True):
-    plt.title(title)
-    plt.xlabel(xlabel)
-    plt.ylabel(ylabel)
-    plt.plot(x,y,label=legend)
-    plt.legend()
-    plt.grid('on')
+def plotCurve(ax,x,y,legend="Curve",xlabel="Time(ms)",ylabel="Value",showflag = True):
+
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.plot(x,y,label=legend)
+    ax.legend()
+    ax.grid('on')
     if showflag == True:
         plt.show()
 
@@ -378,8 +452,8 @@ def parse_opt(video,video_path,framestart=40,frameend=300):
     parser.add_argument('--weights', nargs='+', type=str, default=ROOT / 'best.pt', help='model path(s)')
     parser.add_argument('--source', type=str, default=video, help='file/dir/URL/glob, 0 for webcam')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
-    parser.add_argument('--conf-thres', type=float, default=0.25, help='confidence threshold')
-    parser.add_argument('--iou-thres', type=float, default=0.25, help='NMS IoU threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.3, help='confidence threshold')
+    parser.add_argument('--iou-thres', type=float, default=0.1, help='NMS IoU threshold')
     parser.add_argument('--max-det', type=int, default=1000, help='maximum detections per image')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--view-img', action='store_true', help='show results')
@@ -418,29 +492,52 @@ def main(opt):
 if __name__ == "__main__":
     t_start = time.time()
     print ("\n*****%s start*****" % (time.strftime("%X", time.localtime())))
-    video_path = r"C:/Yoking/01_Study/Yolo/Testing/DigitalVideo/PAB/"
-    detect_path = video_path + r'detect/'
-    try:
-        os.mkdir(detect_path)
-    except:
-        pass
-    files = glob(video_path + "*.avi")
-    files_name = [i.replace("\\", "/").split("/")[-1].split(".json")[0] for i in files]
-    for file in files:
-        if "FRONT" in file:
-            a = subbg.CushionTracking([file],target=False,mp=True,resolution=0.025)
-            a.run()
-            print ("DAB deployment time: %f s" %(a.deployment_time))
-        else:
+    
+    # video_path = r"C:/Yoking/01_Study/Yolo/Testing/DigitalVideo/85_5/"
+    # video_path = r"C:/Yoking/01_Study/Yolo/Testing/DigitalVideo/85_1/"
+    # video_path = r"C:/Yoking/01_Study/Yolo/Testing/DigitalVideo/85_2/"
+    # video_path = r"C:/Yoking/01_Study/Yolo/Testing/DigitalVideo/-35_1/"
+    # video_path = r"C:/Yoking/01_Study/Yolo/Testing/DigitalVideo/85_9/"
+    # video_path = r"C:/Yoking/01_Study/Yolo/Testing/DigitalVideo/23_4/"
+    video_path = r"C:/Users/yujin.wang/Desktop/DAB_deployment_video/LT/"
+    predict = []
+    videolist  = glob(video_path+"/*")
+    videolist = [r'C:/Users/yujin.wang/Desktop/DAB_deployment_video/HT/80_23/']
+    for videoPath in videolist:
+
+        print (videoPath)
+        videoPath += '/'
+        # files = glob(video_path + "*.avi")
+        detect_path = videoPath + r'detect/'
+        try:
+            os.mkdir(detect_path)
+        except:
             pass
-    for file in files:
-        if "SIDE" in file:
-                opt = parse_opt(file,detect_path,framestart=a.offframe,frameend=300)
-                boxinfo,save_path = main(opt)
-        else:
-            pass
-    deployment(boxinfo,save_path,deltaT=a.delta_t,deployment_time=a.deployment_time)
-        
-    timecost = round(time.time() - t_start,1)
-    print ("*****%.3fs *****\n" % (timecost)) 
+        files = glob(videoPath + "*.avi")
+        files_name = [i.replace("\\", "/").split("/")[-1].split(".json")[0] for i in files]
+        for file in files:
+            if "FRONT" in file or "REAR" in file:
+                front = subbg.CushionTracking([file],target=False,mp=True,resolution=0.025)
+                front.run()
+                
+                plt.plot(front.histcor)
+                plt.savefig(file.replace("avi","png"))
+                plt.close()
+                # print ("DAB deployment time: %f s" %(a.deployment_time))
+            else:
+                pass
+        for file in files:
+            if "SIDE" in file:
+                    opt = parse_opt(file,detect_path,framestart=front.offframe,frameend=300)
+                    boxinfo,save_path = main(opt)
+            else:
+                pass
+        t0,t1 = deployment(boxinfo,save_path,deltaT=front.delta_t,deployment_time=front.deployment_time)
+        filename = videoPath.replace("\\", "/").split("/")[-2]
+        predict.append([filename,t0,t1]) 
+        t0,t1 =0,0
+        timecost = round(time.time() - t_start,1)
+        print ("*****%.3fs *****\n" % (timecost)) 
+    predict = pd.DataFrame(predict)
+    predict.to_csv(video_path+'predict.csv')
         
