@@ -44,6 +44,13 @@ from utils.torch_utils import load_classifier, select_device, time_sync
 
 
 def cov1d(data,kernel = [0,0,0,1,1,1,1],thr = 0.90,offside=2):
+    '''
+    Summary: conv for check valley
+    Author: Yujin Wang
+    Date:  2021-12-19 
+    Args:
+    Return:
+    '''
     size = len(kernel)
     padding = data.shape[0]%size
     res = []
@@ -103,11 +110,11 @@ def deployment(data,path,deltaT=0.25,deployment_time=0):
     # plt.scatter(seamflag_time,np.array(seamflag_dis)/max(dis),marker="o",c='red')
 
     ax.scatter(deployment_time,0,marker="o",c='blue')
-    title += "T_s:"+str(deployment_time) +"ms  "
+    title += "Open time:"+str(deployment_time) +"ms  "
     
-    cover_open_time = time[cushion_start-int(0.75/deltaT)] 
-    if cover_open_time < deployment_time :
-        cover_open_time = time[int((deployment_time/deltaT + cushion_start)/2)]
+    # cover_open_time = time[cushion_start-int(0.75/deltaT)] 
+    # if cover_open_time < deployment_time :
+    #     cover_open_time = time[int((deployment_time/deltaT + cushion_start)/2)]
 
     
     seam_dis = signals.medfilt(np.array(seam_dis)/max(seam_dis),3)
@@ -127,8 +134,8 @@ def deployment(data,path,deltaT=0.25,deployment_time=0):
         full_time = 999
     else:
         full_checkflag = max(dis.index(max(dis)),seam_vis_index)
-        title += "T_d:"+str(cover_open_time)+"ms  "
-        ax.scatter(cover_open_time,0,marker="o",c='pink')
+        # title += "T_d:"+str(cover_open_time)+"ms  "
+        # ax.scatter(cover_open_time,0,marker="o",c='pink')
         # Check cushiong Min. displacement
         if seam_dis[full_checkflag] ==0:
             seam_dis[seam_dis==0]=2
@@ -153,7 +160,7 @@ def deployment(data,path,deltaT=0.25,deployment_time=0):
         ax.scatter(check_time,check_dis,marker="s",c='black')
         
         
-        title += "T_f:"+str(full_time)+"ms"
+        title += "Full time:"+str(full_time)+"ms"
         ax.scatter(full_time,min_dis,marker="o",c='red')
     
     ax.set_title(title)
@@ -161,7 +168,7 @@ def deployment(data,path,deltaT=0.25,deployment_time=0):
     print ("Curveplot fig is saved!",path.replace("avi","jpg"))
     plt.savefig(path.replace("avi","jpg"))
     plt.close()
-    return cover_open_time,full_time
+    return full_time
     # plt.show()
 
 
@@ -399,14 +406,8 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
                     boxinfo[object_name][-1] = ([xywh[0],xywh[1],xywh[2],xywh[3]])
                     # boxinfo(xywh,names,cls)
 
-            # Print time (inference-only)
-            # print(f'{s}Done. ({t3 - t2:.3f}s)')
-
             # Stream results
             im0 = annotator.result()
-
-
-
             if view_img:
                 cv2.imshow(str(p), im0)
                 cv2.waitKey(1)  # 1 millisecond
@@ -444,8 +445,6 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
         strip_optimizer(weights)  # update model (to fix SourceChangeWarning)
         
     return boxinfo,save_path
-
-
 
 def parse_opt(video,video_path,framestart=40,frameend=300):
     parser = argparse.ArgumentParser()
@@ -499,16 +498,16 @@ if __name__ == "__main__":
     # video_path = r"C:/Yoking/01_Study/Yolo/Testing/DigitalVideo/-35_1/"
     # video_path = r"C:/Yoking/01_Study/Yolo/Testing/DigitalVideo/85_9/"
     # video_path = r"C:/Yoking/01_Study/Yolo/Testing/DigitalVideo/23_4/"
-    video_path = r"C:/Users/yujin.wang/Desktop/DAB_deployment_video/LT/"
+    video_path = r"C:/Users/yujin.wang/Desktop/DAB_deployment_video/HT/" 
     predict = []
     videolist  = glob(video_path+"/*")
-    videolist = [r'C:/Users/yujin.wang/Desktop/DAB_deployment_video/HT/80_23/']
+    videolist = [r'C:/Users/yujin.wang/Desktop/DAB_deployment_video/HT/85_14/'] 
     for videoPath in videolist:
 
         print (videoPath)
-        videoPath += '/'
+        videoPath += '/' 
         # files = glob(video_path + "*.avi")
-        detect_path = videoPath + r'detect/'
+        detect_path = videoPath + r'detect/' 
         try:
             os.mkdir(detect_path)
         except:
@@ -517,10 +516,10 @@ if __name__ == "__main__":
         files_name = [i.replace("\\", "/").split("/")[-1].split(".json")[0] for i in files]
         for file in files:
             if "FRONT" in file or "REAR" in file:
-                front = subbg.CushionTracking([file],target=False,mp=True,resolution=0.025)
-                front.run()
-                
-                plt.plot(front.histcor)
+                front = subbg.CushionTracking([file],target=False,mp=True)
+                front.run() 
+                time1 = [i*0.25 for i in range(len(front.histcor))]
+                plt.plot(time1,front.histcor)
                 plt.savefig(file.replace("avi","png"))
                 plt.close()
                 # print ("DAB deployment time: %f s" %(a.deployment_time))
@@ -532,10 +531,11 @@ if __name__ == "__main__":
                     boxinfo,save_path = main(opt)
             else:
                 pass
-        t0,t1 = deployment(boxinfo,save_path,deltaT=front.delta_t,deployment_time=front.deployment_time)
+        t1 = deployment(boxinfo,save_path,deltaT=front.delta_t,deployment_time=front.deployment_time)
         filename = videoPath.replace("\\", "/").split("/")[-2]
-        predict.append([filename,t0,t1]) 
-        t0,t1 =0,0
+        # for comparision with testing
+        predict.append([filename,front.deployment_time,t1]) 
+        
         timecost = round(time.time() - t_start,1)
         print ("*****%.3fs *****\n" % (timecost)) 
     predict = pd.DataFrame(predict)

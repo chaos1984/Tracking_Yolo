@@ -12,27 +12,36 @@ import matplotlib.pyplot as plt
 import pytesseract
 
 
-def grayhist(img):
-
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    hist = cv2.calcHist([gray], [0], None, [10], [0, 10])
-    return np.array([i[0] for i in hist])
-
-
-def ReadFirstLine(FileName):
-    f = open(FileName, mode='r')
-    first_line = f.readline()
-    f.close()
-    return first_line.strip()
 
 
 def cv_show(name, img):
+    '''
+    Summary: image show
+    Author: Yujin Wang
+    Date:  2021-12-19 
+    Args:
+        name[str]:window label
+        img[np.arry]:img array
+    Return:
+    '''
+    cv2.namedWindow(name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(name,640, 640)
     cv2.imshow(name, img)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
 
 def OCR(img):
+    '''
+    Summary: Extract the vedio information
+    Author: Yujin Wang
+    Date:  2021-12-19 
+    Args:
+        img[np.array]
+    Return:
+        fps
+        offframe
+    '''
     # cv_show('1',img)
     ref = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     ref = cv2.threshold(ref, 210, 255, cv2.THRESH_BINARY_INV)[1]
@@ -52,28 +61,45 @@ def OCR(img):
         return 4000, 40
 
 
-def checkOpen(dis, deltaT):
-    if dis[-1] != 0:
-        print("Cushion open time:", len(dis)*deltaT)
-    return len(dis)+1
-
-    if len(peaks) > 0:
-
-        return len(dis)
-    else:
-        return 999
-
 
 def extractMxyContour(c):
+    '''
+    Summary: Extract center of box
+    Author: Yujin Wang
+    Date:  2021-12-19 
+    Args: 
+        c[torch.box]:box
+    Return:
+        (center_x,center_y)
+    '''
     M = cv2.moments(c)
     return int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])
 
 
 def distance(x, y):
+    '''
+    Summary: Calc distance
+    Author: Yujin Wang
+    Date:  2021-12-19 
+    Args:
+        x[float]
+        y[float]
+    Return:
+        dis[float]
+    '''
     return np.sqrt(x*x+y*y)
 
 
 def normalize(data):
+    '''
+    Summary: Normalization for data
+    Author: Yujin Wang
+    Date:  2021-12-19 
+    Args:
+        data[np.array]
+    Return:
+        norm_dis[np.array]
+    '''
     try:
         _range = np.max(data) - np.min(data)
         return (data - np.min(data)) / _range
@@ -82,27 +108,82 @@ def normalize(data):
 
 
 def pyrDown(currentframe, pyrDownNum):
+    '''
+    Summary: Down samples
+    Author: Yujin Wang
+    Date:  2021-12-19 
+    Args:
+        currentframe[np.array]
+        pyrDownNum[int]:number
+    Return:
+        rentframe[np.array]
+    '''
     for i in range(pyrDownNum):
         currentframe = cv2.pyrDown(currentframe)
     return currentframe
 
 
 class CushionTracking():
-    def __init__(self, filedir, target=False, mp=True, resolution=0.03):
+    '''
+    Summary: Tracking cushion by subbing background
+    Author: Yujin Wang
+    Date:  2021-12-19 
+    Args:
+        Class
+    Return:
+        incidense = CushionTracking
+    '''
+    def __init__(self, filedir, target=False, mp=True):
+        '''
+        Summary: Initialization 
+        Author: Yujin Wang
+        Date:  2021-12-19 
+        Args:
+            filedir[str]:dirctory of file
+            target[str]:testing res
+            mp[bool]:multi-process
+        Return:
+        '''
         self.filedir = filedir
         self.plottarget = target
         self.threaded_mode = mp
-        # self.delta_t = delta_t
-        # self.time_offset = offset
-        self.resolution = resolution
-        self.pyrDownNum = 2
+        self.pyrDownNum = 2 # 2 down sample 
         self.scale = np.power(2, self.pyrDownNum)
         self.FlagRecord = True
         # self.offframe = int(abs(self.time_offset)/self.delta_t)
 
         self.t0 = 0
 
+    def grayhist(self,img):
+        '''
+        Summary: Calchist from gray img.
+        Author: Yujin Wang
+        Date:  2021-12-19 
+        Args: 
+            img[file]:png
+        Return:
+            grayhist[np.arry]
+        '''
+        img_roi = img[int(self.fheight*0.4):int(self.fheight*0.6),int(self.fwidth*0.4):int(self.fwidth*0.6)] 
+        img_roi = cv2.resize(img_roi,(640,640), interpolation = cv2.INTER_AREA)
+        gray = cv2.cvtColor(img_roi, cv2.COLOR_BGR2GRAY)
+        
+        # _, binary = cv2.threshold(gray,150,255,cv2.THRESH_BINARY)
+        # cv_show('binary',binary)
+        # cv_show('gray',gray)
+        
+        hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
+        Normhist = cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX, -1)
+        return np.array([i[0] for i in Normhist])
+
     def run(self):
+        '''
+        Summary: run main process
+        Author: Yujin Wang
+        Date:  2021-12-19 
+        Args:
+        Return:
+        '''
         for file in self.filedir:
             self.filename = os.path.basename(file)
             print("\n*****%s start*****" %
@@ -132,44 +213,20 @@ class CushionTracking():
             print("*****%.3fs *****\n" % (self.timecost))
             # time.sleep(0.3)
 
-    def curveplot(self):
-        self.dis = []
-        contour_len = len(self.contour)
-        print('Before deployment frame:', self.frame0id -
-              self.offframe, "After deployment frame:", contour_len)
-        frameNumBefore = int(self.frame0id - self.offframe-1)
-        for i in range(frameNumBefore):
-            self.dis.append(0)
-        for i in range(contour_len):
-            contour_frame = self.contour[i]
-            cX, cY = extractMxyContour(contour_frame)
-            contour_frame = [j[0] for j in contour_frame]
-            self.dis.append(distance(abs(cX-self.cX0), abs(cX-self.cX0)))
-
-        self.dis = normalize(self.dis)
-        self.frametime = self.frametime[self.offframe:len(
-            self.dis)+self.offframe]
-        fullframe = checkTerminate(self.dis)
-        print("**Full time**: %3.2f" % (self.frametime[fullframe]))
-        figure_title = "Time:%s   Full time  %3.2f " % (
-            str(self.timecost), self.frametime[fullframe])
-        plt.title(figure_title)
-        plt.plot(self.frametime, self.dis, label="Dis")
-        plt.scatter(self.frametime[fullframe],
-                    self.dis[fullframe], label="Full time")
-        plt.xlabel("Time(ms)")
-        plt.ylabel("Value")
-        plt.legend()
-        plt.grid('on')
-        plt.savefig(self.outImage)
-        plt.cla()
-        # return (self.frametime,self.dis,self.frametime[-self.extend],self.dis[-self.extend])
-
     def getVideoInfo(self, frame):
-        self.bggrayhist = grayhist(frame)
+        '''
+        Summary: Get video information
+        Author: Yujin Wang
+        Date:  2021-12-19 
+        Args:
+            frame
+        Return:
+        '''
+        
         fshape = frame.shape
         self.fheight = fshape[0]
         self.fwidth = fshape[1]
+        self.bggrayhist = self.grayhist(frame)
 
         # self.text1 = OCR(frame[self.fwidth:self.fheight-int(1/2.*(self.fheight-self.fwidth+1)),0:self.fwidth])
         self.rate, self.offframe = OCR(
@@ -180,6 +237,14 @@ class CushionTracking():
         print("Delta_t: %f Offset frame: %d" % (self.delta_t, self.offframe))
 
     def frame0(self, frame):
+        '''
+        Summary: Get video from frame0
+        Author: Yujin Wang
+        Date:  2021-12-19 
+        Args:
+            frame[]:frame0
+        Return:
+        '''
         self.getVideoInfo(frame)
 
         # self.videoWriter = cv2.VideoWriter(self.outVideo,cv2.VideoWriter_fourcc('m', 'p', '4', 'v'),30,(self.fwidth,self.fheight))
@@ -190,7 +255,14 @@ class CushionTracking():
             self.bg, d=0, sigmaColor=100, sigmaSpace=15)
 
     def multiProccessing(self, video_file):
-
+        '''
+        Summary: Multi process 
+        Author: Yujin Wang
+        Date:  2021-12-19 
+        Args:
+            video_file
+        Return:
+        '''
         self.discheck = np.array([])
         self.flagterminat = False
         self.cap = cv2.VideoCapture(video_file)
@@ -204,51 +276,56 @@ class CushionTracking():
         pool = ThreadPool(processes=threadn)
         pending = deque()
         print("CPU", threadn)
-        res_list = []
+        res_list = [0]
 
         frame_id = 0
-        self.histcor = []
+        self.histcor = [1]
         while(True):
             frame_id += 1
-            if (self.flagterminat):
-
-                break
-
+            # if (frame_id > 10./self.delta_t+ abs(self.offframe)):
+            #     break
             ret, frame = self.cap.read()
-            self.curgrayhist = grayhist(frame)
-            self.histcor.append(np.corrcoef(
-                self.curgrayhist, self.bggrayhist)[0][1])
             if (frame_id < abs(self.offframe)+1):
                 continue
-
-            while len(pending) > 0 and pending[0].ready():
-                res = pending.popleft().get()
-                res_list.append(res)
-            if len(pending) < threadn:
-
-                if self.threaded_mode:
-                    try:
-                        task = pool.apply_async(
-                            self.frameprocess, (frame.copy(), frame_id))
-                    except:
-                        break
-                    pending.append(task)
-                else:
-                    # ret, frame = self.cap.read()
-                    res = self.frameprocess(frame.copy(), frame_id)
-
-                    # cv2.imshow('threaded video', res)
-                    res_list.append(res)
-            if cv2.waitKey(150) & 0xff == 27:
+            
+            self.curgrayhist = self.grayhist(frame)
+            self.corr = cv2.compareHist(self.curgrayhist, self.bggrayhist,method=cv2.HISTCMP_CORREL)
+            # print (self.corr)
+            self.histcor.append(self.corr)
+            if (self.corr < 0.99):
+                self.deployment_time = (frame_id-abs(self.offframe)) * self.delta_t
                 break
-        # for image in res_list:
-        #     self.videoWriter.write(image)
-        # self.videoWriter.release()
-        self.cap.release()
-        cv2.destroyAllWindows()
+        #     while len(pending) > 0 and pending[0].ready():
+        #         res = pending.popleft().get()
+        #         res_list.append(res)
+        #     if len(pending) < threadn:
+
+        #         if self.threaded_mode:
+        #             try:
+        #                 task = pool.apply_async(
+        #                     self.frameprocess, (frame.copy(), frame_id))
+        #             except:
+        #                 break
+        #             pending.append(task)
+        #         else:
+        #             # ret, frame = self.cap.read()
+        #             res = self.frameprocess(frame.copy(), frame_id)
+
+        #             # cv2.imshow('threaded video', res)
+        #             res_list.append(res)
+        #     if cv2.waitKey(150) & 0xff == 27:
+        #         break
+        # self.cap.release()
+        # cv2.destroyAllWindows()
 
     def frameprocess(self, frame, frame_id):
-
+        '''
+        Summary: By substractting bg
+        Author: Yujin Wang
+        Date:  2021-12-19 
+        Args:
+        Return:
+        '''
         frame_copy = pyrDown(frame, self.pyrDownNum)
 
         frame_blur = cv2.bilateralFilter(
@@ -323,8 +400,7 @@ class CushionTracking():
 
 
 if __name__ == "__main__":
-    VideoDir = [
-        r"C:\Yoking\01_Study\Yolo\Testing\DAB_1020\Front\T-21340633_FRONT_DAB_-35.avi"]
+    VideoDir = [r"C:\Yoking\01_Study\Yolo\Testing\DAB_1020\Front\T-21340633_FRONT_DAB_-35.avi"]
     # VideoDir = [r"C:\Yoking\01_Study\Yolo\Testing\DAB_1020\Front\T-20408870_FRONT_DAB_85.avi"]
     # VideoDir = [r"C:\Yoking\01_Study\Yolo\Testing\DAB_1020\Front\T-20408870_FRONT_DAB_85.avi"]
     # VideoDir = [r"C:\Yoking\01_Study\Yolo\Testing\DAB_1020\Front\T-20408870_FRONT_DAB_85.avi"]
@@ -333,7 +409,7 @@ if __name__ == "__main__":
     # VideoDir = [r"C:\Yoking\01_Study\Yolo\Testing\DAB_1020\Front\T-19157806_FRONT_DAB_85.avi"]
     for file in VideoDir:
         print(file)
-        a = CushionTracking([file], target=False, mp=True, resolution=0.025)
+        a = CushionTracking([file], target=False, mp=True)
         a.run()
         print("Deployment start time:", a.deployment_time)
         # print (a.deployment_time)
