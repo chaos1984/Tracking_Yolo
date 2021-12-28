@@ -12,7 +12,35 @@ import matplotlib.pyplot as plt
 import pytesseract
 
 
-
+def cov1d(data,kernel = [0,0,0,1,1,1,1],thr = 0.90,offside=2):
+    '''
+    Summary: Conv kernel for check curve valley
+    Author: Yujin Wang
+    Date:  2021-12-19 
+    Args:
+        data[np.array]:1-d signal
+    Return:
+        check[list]: Index list
+        res[list]: Signal after conv
+    '''
+    size = len(kernel)
+    padding = data.shape[0]%size
+    res = []
+    if padding != 0:
+        for i in range(size - padding):
+            data = np.append(data,0)
+    check = []
+    for index,v in enumerate(data):
+        if index+size > data.shape[0]:
+            for i in range(size - 1):
+                res.append(0)
+            break
+        temp = data[index:index+size]
+        
+        if np.corrcoef(kernel,temp)[0][1] > thr:
+            check.append(index+offside)
+            res.append(data[index+offside])
+    return check,np.array(res)
 
 def cv_show(name, img):
     '''
@@ -172,7 +200,7 @@ class CushionTracking():
         # cv_show('binary',binary)
         # cv_show('gray',gray)
         
-        hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
+        hist = cv2.calcHist([gray], [0], None, [10], [0, 256])
         Normhist = cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX, -1)
         return np.array([i[0] for i in Normhist])
 
@@ -293,8 +321,10 @@ class CushionTracking():
             # print (self.corr)
             self.histcor.append(self.corr)
             if (self.corr < 0.99):
-                self.deployment_time = (frame_id-abs(self.offframe)) * self.delta_t
                 break
+        check,corr = cov1d(np.array(self.histcor),[1,0.8,0.5],thr=0.99)
+        print (check,corr)
+        self.deployment_time = (check[0]+2)*self.delta_t
         #     while len(pending) > 0 and pending[0].ready():
         #         res = pending.popleft().get()
         #         res_list.append(res)

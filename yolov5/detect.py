@@ -45,11 +45,14 @@ from utils.torch_utils import load_classifier, select_device, time_sync
 
 def cov1d(data,kernel = [0,0,0,1,1,1,1],thr = 0.90,offside=2):
     '''
-    Summary: conv for check valley
+    Summary: Conv kernel for check curve valley
     Author: Yujin Wang
     Date:  2021-12-19 
     Args:
+        data[np.array]:1-d signal
     Return:
+        check[list]: Index list
+        res[list]: Signal after conv
     '''
     size = len(kernel)
     padding = data.shape[0]%size
@@ -71,6 +74,18 @@ def cov1d(data,kernel = [0,0,0,1,1,1,1],thr = 0.90,offside=2):
         
 
 def deployment(data,path,deltaT=0.25,deployment_time=0):
+    '''
+    Summary: Calc open time and full time based on curve
+    Author: Yujin Wang
+    Date:  2021-12-23 
+    Args: 
+        data[np.array]: Curve data of seam, cushion and hub from YoloV5
+        path[str]: Curve figure save path
+        delta_T[float]: Interval time between 2 frames.
+        deployment_time[float]: Start time of deployment.
+    Return:
+        fulltime[float]: Cushion full time
+    '''
     dis = []
     area = []
     w = []
@@ -173,12 +188,27 @@ def deployment(data,path,deltaT=0.25,deployment_time=0):
 
 
 def calcDis(p1,p2):
+    '''
+    Summary: Calc distance between points
+    Author: Yujin Wang
+    Date:  2021-12-23 
+    Args:
+        p1,p2[list]: Coordination of p1,p2
+    Return:
+        dist[float]: Distance between p1 and p2
+    '''
     return np.sqrt(np.power(p1[0]-p2[0],2) + np.power(p1[1]-p2[1],2))
 
 
 
 def plotCurve(ax,x,y,legend="Curve",xlabel="Time(ms)",ylabel="Value",showflag = True):
-
+    '''
+    Summary: Plot curve
+    Author: Yujin Wang
+    Date:  2021-12-23 
+    Args:
+    Return:
+    '''
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.plot(x,y,label=legend)
@@ -187,7 +217,7 @@ def plotCurve(ax,x,y,legend="Curve",xlabel="Time(ms)",ylabel="Value",showflag = 
     if showflag == True:
         plt.show()
 
-@torch.no_grad()
+@torch.no_grad() # No grade calculation in Interfer
 def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
         source=ROOT / 'data/images',  # file/dir/URL/glob, 0 for webcam
         imgsz=640,  # inference size (pixels)
@@ -448,35 +478,35 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
 
 def parse_opt(video,video_path,framestart=40,frameend=300):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', nargs='+', type=str, default=ROOT / 'best.pt', help='model path(s)')
-    parser.add_argument('--source', type=str, default=video, help='file/dir/URL/glob, 0 for webcam')
-    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
-    parser.add_argument('--conf-thres', type=float, default=0.3, help='confidence threshold')
-    parser.add_argument('--iou-thres', type=float, default=0.1, help='NMS IoU threshold')
-    parser.add_argument('--max-det', type=int, default=1000, help='maximum detections per image')
-    parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-    parser.add_argument('--view-img', action='store_true', help='show results')
-    parser.add_argument('--save-txt', action='store_true', help='save results to *.txt')
-    parser.add_argument('--save-conf', action='store_true', help='save confidences in --save-txt labels')
-    parser.add_argument('--save-crop', action='store_true', help='save cropped prediction boxes')
-    parser.add_argument('--nosave', action='store_true', help='do not save images/videos')
-    parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
-    parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
-    parser.add_argument('--augment', action='store_true', help='augmented inference')
-    parser.add_argument('--visualize', action='store_true', help='visualize features')
-    parser.add_argument('--update', action='store_true', help='update all models')
-    parser.add_argument('--project', default=video_path, help='save results to project/name')
+    parser.add_argument('--weights', nargs='+', type=str, default=ROOT / 'best.pt', help='model path(s)') # 指定模型路径
+    parser.add_argument('--source', type=str, default=video, help='file/dir/URL/glob, 0 for webcam') # 选择录像
+    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w') # 32 倍数，图像尺寸，默认无影响
+    parser.add_argument('--conf-thres', type=float, default=0.3, help='confidence threshold') # 置信度阈值
+    parser.add_argument('--iou-thres', type=float, default=0.1, help='NMS IoU threshold') #iou 阈值
+    parser.add_argument('--max-det', type=int, default=1000, help='maximum detections per image') #最大检测目标数量，默认
+    parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu') # 选择GPU 还是 cpu
+    parser.add_argument('--view-img', action='store_true', help='show results') # 默认
+    parser.add_argument('--save-txt', action='store_true', help='save results to *.txt') # 默认
+    parser.add_argument('--save-conf', action='store_true', help='save confidences in --save-txt labels') # 默认
+    parser.add_argument('--save-crop', action='store_true', help='save cropped prediction boxes') # 默认
+    parser.add_argument('--nosave', action='store_true', help='do not save images/videos') # 默认
+    parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3') ## 默认
+    parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS') # 默认
+    parser.add_argument('--augment', action='store_true', help='augmented inference') # 默认
+    parser.add_argument('--visualize', action='store_true', help='visualize features')# 默认
+    parser.add_argument('--update', action='store_true', help='update all models')# 默认
+    parser.add_argument('--project', default=video_path, help='save results to project/name')# 默认
     # parser.add_argument('--project', default=ROOT / 'runs/detect', help='save results to project/name')
-    parser.add_argument('--name', default='exp', help='save results to project/name')
-    parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
-    parser.add_argument('--line-thickness', default=3, type=int, help='bounding box thickness (pixels)')
-    parser.add_argument('--hide-labels', default=False, action='store_true', help='hide labels')
-    parser.add_argument('--hide-conf', default=False, action='store_true', help='hide confidences')
-    parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
-    parser.add_argument('--dnn', action='store_true', help='use OpenCV DNN for ONNX inference')
+    parser.add_argument('--name', default='exp', help='save results to project/name')# 默认
+    parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')# 默认
+    parser.add_argument('--line-thickness', default=3, type=int, help='bounding box thickness (pixels)')# 默认
+    parser.add_argument('--hide-labels', default=False, action='store_true', help='hide labels')# 默认
+    parser.add_argument('--hide-conf', default=False, action='store_true', help='hide confidences')# 默认
+    parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')# 默认
+    parser.add_argument('--dnn', action='store_true', help='use OpenCV DNN for ONNX inference')# 默认
     # Parameters for deployment video clip
-    parser.add_argument('--framestart',  type=int, default=framestart, help='Crop frame start')
-    parser.add_argument('--frameend',  type=int, default=frameend, help='Crop frame end')
+    parser.add_argument('--framestart',  type=int, default=framestart, help='Crop frame start')# 视频起始帧
+    parser.add_argument('--frameend',  type=int, default=frameend, help='Crop frame end')# 视频结束帧
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
     # print_args(FILE.stem, opt)
@@ -489,8 +519,8 @@ def main(opt):
     
 
 if __name__ == "__main__":
-    t_start = time.time()
-    print ("\n*****%s start*****" % (time.strftime("%X", time.localtime())))
+    t_start = time.time() # 统计时间
+    print ("\n*****%s start*****" % (time.strftime("%X", time.localtime()))) # 打印开始时间
     
     # video_path = r"C:/Yoking/01_Study/Yolo/Testing/DigitalVideo/85_5/"
     # video_path = r"C:/Yoking/01_Study/Yolo/Testing/DigitalVideo/85_1/"
@@ -498,24 +528,23 @@ if __name__ == "__main__":
     # video_path = r"C:/Yoking/01_Study/Yolo/Testing/DigitalVideo/-35_1/"
     # video_path = r"C:/Yoking/01_Study/Yolo/Testing/DigitalVideo/85_9/"
     # video_path = r"C:/Yoking/01_Study/Yolo/Testing/DigitalVideo/23_4/"
-    video_path = r"C:/Users/yujin.wang/Desktop/DAB_deployment_video/HT/" 
-    predict = []
-    videolist  = glob(video_path+"/*")
-    videolist = [r'C:/Users/yujin.wang/Desktop/DAB_deployment_video/HT/85_14/'] 
-    for videoPath in videolist:
+    video_path = r"C:/Users/yujin.wang/Desktop/DAB_deployment_video/LT/"  # 录像路径
+    predict = [] # 初始化预测结果，针对多个T号视频录像，用于程序初期的调试
+    videolist  = glob(video_path+"/*") # 获得录像列表
+    # videolist = [r'C:/Users/yujin.wang/Desktop/DAB_deployment_video/HT/85_14/']  # 如果只针对一个T号，可以输入一个录像的路径
+    for videoPath in videolist:   #循环预测多个T号下的气袋
 
-        print (videoPath)
-        videoPath += '/' 
+        print (videoPath)         #打印T录像路径
+        videoPath += '/'          #补全T录像路径
         # files = glob(video_path + "*.avi")
-        detect_path = videoPath + r'detect/' 
+        detect_path = videoPath + r'detect/'  #创建推测文件夹，如果存在则pass
         try:
             os.mkdir(detect_path)
         except:
             pass
-        files = glob(videoPath + "*.avi")
-        files_name = [i.replace("\\", "/").split("/")[-1].split(".json")[0] for i in files]
-        for file in files:
-            if "FRONT" in file or "REAR" in file:
+        files = glob(videoPath + "*.avi") #获得T号下录像
+        for file in files:                #循环获得录像文件
+            if "FRONT" in file or "REAR" in file: #如果是正面DAB点爆录像，则采用帧差法进行目标追踪，获得
                 front = subbg.CushionTracking([file],target=False,mp=True)
                 front.run() 
                 time1 = [i*0.25 for i in range(len(front.histcor))]
